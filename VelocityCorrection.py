@@ -63,7 +63,8 @@ def velocityCorrection(v_init, peak_mag, zangle, meteoroid_type, system_type):
     Arguments:
         v_init: [float] Initial velocity (km/s).
         peak_mag: [float] Peak magnitude of the meteor.
-        zangle: [float] Zenith angle (degrees).
+        zangle: [float] Zenith angle (degrees). If larger than 75 deg, it will be limited to 75 deg, as larger
+            values were not simulated.
         meteoroid_type: [str] Type of meteoroid.
             - 'cometary' - density 360 to 1510 kg/m^3, ablation coeficient 0.1 s^2/km^2 
             - 'asteroidal' - density 2500 to 3500 kg/m^3, ablation coeficient 0.042 s^2/km^2 
@@ -77,6 +78,12 @@ def velocityCorrection(v_init, peak_mag, zangle, meteoroid_type, system_type):
     Return:
         [float] Velocity difference in km/s.
     """
+
+
+    # Limit the zenith angle to 75 degrees
+    if zangle > 75:
+        zangle = 75.0
+
 
     # Define CSV file name with fits
     preatm_csv_name = 'preatmosphere_fits.csv'

@@ -14,16 +14,19 @@ def loadFitCSV(file_name, delimiter=';'):
 
     with open(file_name) as f:
 
-        # Skip the header
-        next(f)
-
-
         data = []
 
         # Read velocity, zenith angle and fit parameters
         for line in f:
 
+            # Remove newline characters
             line = line.replace('\n', '').replace('\r', '')
+
+            # Skip the header
+            if line[0] == '#':
+                continue
+
+            # Add data to list
             line = list(map(float, line.split(delimiter)))
 
             data.append(line)
@@ -45,11 +48,12 @@ def zangleModel(zangle, a, b, c, d, e, f, g):
         [float] Velocity difference in m/s
     """
 
-    return a + b*zangle + c*math.exp(d*zangle + e) + f*math.exp(g*zangle**2 + e)
+    return a + b*zangle + c*zangle**2 + d*zangle**3 + e*zangle**4 + f*zangle**5 + g*zangle**6
 
 
 
-def velocityCorrection(v_init, zangle, meteoroid_type, system_type):
+
+def velocityCorrection(v_init, peak_mag, zangle, meteoroid_type, system_type):
     """ Returns a difference in velocity for the given meteoroid type, observation system, initial 
         velocity and zenith angle, as given by Vida et al. 2017. For the areas of the velocity/zenith angle 
         phase space where no simulations were above the detection limit, the difference is taken for the
@@ -58,6 +62,7 @@ def velocityCorrection(v_init, zangle, meteoroid_type, system_type):
 
     Arguments:
         v_init: [float] Initial velocity (km/s).
+        peak_mag: [float] Peak magnitude of the meteor.
         zangle: [float] Zenith angle (degrees).
         meteoroid_type: [str] Type of meteoroid.
             - 'cometary' - density 360 to 1510 kg/m^3, ablation coeficient 0.1 s^2/km^2 
@@ -73,57 +78,65 @@ def velocityCorrection(v_init, zangle, meteoroid_type, system_type):
         [float] Velocity difference in km/s.
     """
 
-    # Define CSV file names with velocity fits
-    intensified_csvs = ['sim_intensified_cometary_fits.csv', 'sim_intensified_asteroidal_fits.csv', \
-        'sim_intensified_iron_fits.csv']
-    moderate_csvs = ['sim_moderate_cometary_fits.csv', 'sim_moderate_asteroidal_fits.csv', \
-        'sim_moderate_iron_fits.csv']
-    allsky_csvs = ['sim_allsky_cometary_fits.csv', 'sim_allsky_asteroidal_fits.csv', \
-        'sim_allsky_iron_fits.csv']
+    # Define CSV file name with fits
+    preatm_csv_name = 'preatmosphere_fits.csv'
     
 
-    # Choose the appropriate CSV file to load
+    # Choose the appropriate system id
     if system_type == 'intensified':
-        csv_list = intensified_csvs
+        system_id = 2
 
     elif system_type == 'moderate':
-        csv_list = moderate_csvs
+        system_id = 1
 
     elif system_type == 'allsky':
-        csv_list = allsky_csvs
+        system_id = 0
 
     else:
         raise ValueError("system_type = " + system_type + " not found! Try using 'intensified', 'moderate' or 'allsky'.")
 
 
-    # Choose the appropriate meteoroid type
+    # Choose the appropriate meteoroid id
     if meteoroid_type == 'cometary':
-        csv_file = csv_list[0]
+        meteoroid_id = 0
 
     elif meteoroid_type == 'asteroidal':
-        csv_file = csv_list[1]
+        meteoroid_id = 1
 
     elif meteoroid_type == 'iron-rich':
-        csv_file = csv_list[2]
+        meteoroid_id = 2
 
     else:
         raise ValueError("meteoroid_type = " + meteoroid_type + " not found! Try using 'comeraty', 'asteroidal' or 'iron-rich'.")
 
     
     # Load the appropriate CSV file
-    fit_data = loadFitCSV(csv_file)
-    
-    # Take only those fits for which the minimum zenith angle is lower than the given zenith angle
-    fit_data = [line for line in fit_data if line[1] <= math.radians(zangle)]
+    fit_data = loadFitCSV(preatm_csv_name)
 
-    # Find the closest fitted velocity to the given initial velocity
-    vel_temp = [abs(line[0]/1000 - v_init) for line in fit_data]
-    vel_indx = vel_temp.index(min(vel_temp))
+    # Take only those fits which correspond to the given system and meteoroid type
+    fit_data = [line for line in fit_data if line[0] == system_id]
+    fit_data = [line for line in fit_data if line[1] == meteoroid_id]
+
+    # Compute absolute differences between the given velocity and velocities in the table
+    vel_diffs = [abs(line[2]/1000 - v_init) for line in fit_data]
+
+    # Find indices with best matching velocities
+    vel_indices = [i for i, x in enumerate(vel_diffs) if x == min(vel_diffs)]
+    
+    # Compute absolute differences between the given magnitude and magnitudes of the given velocity
+    mag_diffs = [abs(fit_data[vel_ind][3] - peak_mag) for vel_ind in vel_indices]
+
+    # Find the best matching magnitude for the given velocity
+    mag_ind = mag_diffs.index(min(mag_diffs))
+
+    print('Matched table entry:')
+    print(fit_data[vel_indices[mag_ind]])
+    print()
 
     # Take the appropriate fit parameters
-    fit_params = fit_data[vel_indx][2:]
+    fit_params = fit_data[vel_indices[mag_ind]][4:]
 
-    # Calculate the velocity difference in km/s
+    # Computethe velocity difference in km/s
     return zangleModel(math.radians(zangle), *fit_params)/1000
 
 
@@ -137,6 +150,9 @@ if __name__ == "__main__":
 
     # ZENITH ANGLE (deg)
     zangle = 45.0
+
+    # Peak magnitude
+    peak_mag = 2.0
 
 
     ### SET METEOROID TYPE
@@ -154,8 +170,8 @@ if __name__ == "__main__":
     system_type = 'moderate'
 
     # Calculate velocity correction
-    delta_v = velocityCorrection(v_init, zangle, meteoroid_type, system_type)
+    delta_v = velocityCorrection(v_init, peak_mag, zangle, meteoroid_type, system_type)
 
     # Print velocity correction in km/s
-    print("Correction for {:s} meteoroids observed by {:s} systems with velocity of {:.2f} km/s: {:.3f} km/s.".format(meteoroid_type,
-        system_type, v_init, delta_v))
+    print("Correction for {:s} meteoroids observed by {:s} systems with velocity of {:.2f} km/s, peak magnitude {:+.2f} and zenith angle of {:.2f}: {:.3f} km/s.".format(meteoroid_type,
+        system_type, v_init, peak_mag, zangle, delta_v))
